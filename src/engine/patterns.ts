@@ -71,6 +71,15 @@ export class PatternCursor {
     readonly mode: PedalMode,
   ) {}
 
+  save(): { stepIndex: number; noteIndex: number } {
+    return { stepIndex: this.stepIndex, noteIndex: this.noteIndex };
+  }
+
+  restore(state: { stepIndex: number; noteIndex: number }): void {
+    this.stepIndex = state.stepIndex;
+    this.noteIndex = state.noteIndex;
+  }
+
   /** Notes of one bar starting at `barStart` (seconds), at `bpm`, with `beatsPerBar` beats. */
   nextBar(barStart: number, bpm: number, beatsPerBar: number, bar: number): ExpectedNote[] {
     const p = this.pattern;

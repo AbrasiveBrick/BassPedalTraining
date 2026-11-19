@@ -62,18 +62,19 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
 
   $$<HTMLButtonElement>('#pedal-mode button').forEach((b) =>
     b.addEventListener('click', () => {
-      if (session?.running) return;
+      if (pr.pedalMode === b.dataset.value) return;
       pr.pedalMode = b.dataset.value as PedalMode;
-      lane.reset(pr.pedalMode);
       renderPedal();
       renderPatterns();
       save();
+      applyChange('restart');
     }),
   );
   patternSel.addEventListener('change', () => {
     pr.patternId = patternSel.value;
     describe();
     save();
+    applyChange('restart');
   });
   modeSel.value = pr.mode;
   modeSel.addEventListener('change', () => {
@@ -81,6 +82,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
     renderModeFields();
     describe();
     save();
+    applyChange('restart');
   });
 
   const clampBpm = (v: number) => Math.max(30, Math.min(320, Math.round(v) || 120));
@@ -90,6 +92,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
     bpmIn.value = String(pr.bpm);
     describe();
     save();
+    applyChange('bpm');
   });
   $$<HTMLButtonElement>('.stepper button').forEach((b) =>
     b.addEventListener('click', () => {
@@ -97,6 +100,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
       bpmIn.value = String(pr.bpm);
       describe();
       save();
+      applyChange('bpm');
     }),
   );
 
@@ -109,6 +113,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
       el.value = String(v);
       describe();
       save();
+      if (id === 'sb-start') applyChange('preview');
     });
   }
   bindNum('duration', () => pr.durationSec, (v) => (pr.durationSec = v), 10, 1800);
@@ -124,6 +129,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
   countIn.checked = pr.countIn;
   subdiv.addEventListener('change', () => {
     pr.subdivisionClicks = subdiv.checked;
+    if (session) session.config.subdivisionClicks = pr.subdivisionClicks;
     save();
   });
   countIn.addEventListener('change', () => {
@@ -134,6 +140,29 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
   renderPedal();
   renderPatterns();
   renderModeFields();
+  showPreview();
+
+  function showPreview(): void {
+    const bpm = pr.mode === 'speed' ? pr.speed.startBpm : pr.bpm;
+    lane.showPreview(getPattern(pr.patternId), pr.pedalMode, bpm, pr.beatsPerBar);
+  }
+
+  /**
+   * Apply a settings change right away. While stopped, the lane preview updates.
+   * During a run, a tempo change applies from the next bar. A new exercise (pattern,
+   * pedal or mode) saves the current run and starts the new one with no count-in.
+   */
+  function applyChange(kind: 'bpm' | 'restart' | 'preview'): void {
+    if (!session?.running) {
+      showPreview();
+      return;
+    }
+    if (kind === 'bpm' && pr.mode !== 'speed') session.setBpm(pr.bpm);
+    else if (kind === 'restart') {
+      stop();
+      void start(false);
+    }
+  }
 
   // ---------- live stats ----------
   const el = {
@@ -223,7 +252,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
     });
   }
 
-  async function start(): Promise<void> {
+  async function start(countIn = pr.countIn): Promise<void> {
     if (session?.running) return;
     const pattern = getPattern(pr.patternId);
     lane.reset(pr.pedalMode);
@@ -231,11 +260,12 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
     resetStats();
     clicks.setVolume(settings.clickVolume);
     session = new Session(
-      { pattern, pedalMode: pr.pedalMode, mode: pr.mode, bpm: pr.bpm, durationSec: pr.durationSec, beatsPerBar: pr.beatsPerBar, subdivisionClicks: pr.subdivisionClicks, countIn: pr.countIn, speed: { ...pr.speed } },
+      { pattern, pedalMode: pr.pedalMode, mode: pr.mode, bpm: pr.bpm, durationSec: pr.durationSec, beatsPerBar: pr.beatsPerBar, subdivisionClicks: pr.subdivisionClicks, countIn, speed: { ...pr.speed } },
       clicks,
       bus,
       {
         onNotes: (notes, bar) => lane.addBar(notes, bar.start, bar.bpm, bar.beats),
+        onTruncate: (t) => lane.removeFrom(t),
         onResult: (r: HitResult) => {
           lane.addResult(r);
           if (r.kind === 'hit') offsetChart.push(r.offsetMs, r.grade);
@@ -255,7 +285,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
       },
     );
     startBtn.textContent = 'Stop';
-    flash(pr.countIn ? 'Count-in…' : 'Go!', 1500);
+    flash(countIn ? 'Count-in…' : `${pattern.name}: go!`, 1500);
     await session.start();
     uiTimer = window.setInterval(() => {
       if (!session) return;
@@ -271,8 +301,10 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
   function finish(s: SessionSummary): void {
     clearInterval(uiTimer);
     startBtn.textContent = 'Start';
+    lane.freeze();
     renderStats(s.stats);
-    const saved = s.stats.notes >= 8;
+    // Only keep runs that were actually played (not just started and left running).
+    const saved = s.stats.notes >= 8 && s.stats.perfect + s.stats.good + s.stats.ok >= 4;
     if (saved) {
       addSession(s);
       d.onSessionSaved();

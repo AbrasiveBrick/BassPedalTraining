@@ -3,6 +3,14 @@ import { ClickPlayer, LookaheadTimer } from '../audio/metronome';
 import type { Hit, HitBus } from '../input/hits';
 import type { PracticeMode } from '../storage/settings';
 import { PatternCursor, type ExpectedNote, type Pattern, type PedalMode } from './patterns';
+
+/**
+ * Bars are generated (scored notes + lane display) this far ahead of the audible
+ * time, so the lane can show notes coming. Their clicks are only scheduled
+ * within the short audio lookahead. Until then a bar can still be regenerated
+ * when the tempo changes.
+ */
+export const VISUAL_AHEAD_SEC = 2.6;
 import { MAX_WINDOW_MS, Scorer, Stats, type HitResult, type StatsSnapshot } from './scoring';
 import { SpeedBuilder, type SpeedBuilderConfig, type StepOutcome } from './speedBuilder';
 
@@ -36,6 +44,8 @@ export interface SessionSummary {
 
 export interface SessionEvents {
   onNotes?(notes: ExpectedNote[], bar: { start: number; bpm: number; beats: number }): void;
+  /** Bars starting at or after `time` were dropped and will be regenerated. */
+  onTruncate?(time: number): void;
   onResult?(r: HitResult): void;
   onMiss?(n: ExpectedNote): void;
   onBar?(bar: number, bpm: number, stats: StatsSnapshot): void;
@@ -48,6 +58,10 @@ interface Bar {
   start: number;
   end: number;
   bpm: number;
+  notes: ExpectedNote[];
+  /** Pattern position before this bar, so the bar can be regenerated. */
+  cursor: { stepIndex: number; noteIndex: number };
+  clicked: boolean;
   stats: Stats;
   done: boolean;
 }
@@ -82,6 +96,14 @@ export class Session {
 
   get currentBpm(): number {
     return this.speed ? this.speed.bpm : this.config.bpm;
+  }
+
+  /** Change the tempo of a fixed or timed run. It applies from the next bar that isn't scheduled yet. */
+  setBpm(bpm: number): void {
+    if (this.speed || bpm === this.config.bpm) return;
+    this.config.bpm = bpm;
+    this.truncateFuture();
+    if (this.running) this.generateBars();
   }
 
   /** Seconds of actual playing so far (after the count-in). */
@@ -135,7 +157,7 @@ export class Session {
 
   private summary(): SessionSummary {
     const stats = this.total.snapshot();
-    const playedBars = this.bars.filter((b) => b.stats.notes > 0);
+    const playedBars = this.bars.filter((b) => b.clicked && b.stats.notes > 0);
     const startBpm = playedBars[0]?.bpm ?? this.currentBpm;
     const endBpm = playedBars[playedBars.length - 1]?.bpm ?? this.currentBpm;
     const pass = this.config.speed.passAccuracy;
@@ -151,61 +173,92 @@ export class Session {
       endBpm,
       maxBpm: this.maxBpm || this.currentBpm,
       maxCleanBpm,
-      durationSec: Math.round(Math.min(this.elapsed, (this.bars[this.bars.length - 1]?.end ?? this.firstNoteTime) - this.firstNoteTime)),
+      durationSec: Math.round(this.endTime === Infinity ? this.elapsed : Math.min(this.elapsed, this.endTime - this.firstNoteTime)),
       stats,
     };
   }
 
   private tick(horizon: number): void {
-    // 1. Schedule bars that start before the horizon.
-    while (this.nextBarStart < horizon && this.nextBarStart < this.endTime) this.scheduleBar();
-
-    // 2. Resolve misses and finished bars.
     const now = audibleTime();
+    const settle = MAX_WINDOW_MS / 1000;
+
+    // 1. Resolve misses and finished bars (this may change the tempo).
     for (const n of this.scorer.expire(now)) {
       this.total.addMiss();
       this.barFor(n.time)?.stats.addMiss();
       this.events.onMiss?.(n);
     }
-    const settle = MAX_WINDOW_MS / 1000;
     for (const b of this.bars) {
-      if (b.done || b.end + settle > now) continue;
+      if (b.done || !b.clicked || b.end + settle > now) continue;
       b.done = true;
       this.events.onBar?.(b.index, b.bpm, b.stats.snapshot());
       if (this.speed) {
         const outcome = this.speed.onBarScored(b.bpm, b.stats.weightedCorrect, b.stats.denominator);
-        if (outcome.kind !== 'pending') this.events.onStep?.(outcome);
-        if (outcome.kind === 'target') this.endTime = Math.min(this.endTime, this.nextBarStart);
+        if (outcome.kind === 'pending') continue;
+        this.events.onStep?.(outcome);
+        if (outcome.kind === 'up' || outcome.kind === 'down') this.truncateFuture();
+        if (outcome.kind === 'target') {
+          this.truncateFuture();
+          this.endTime = Math.min(this.endTime, this.nextBarStart);
+        }
       }
     }
+
+    // 2. Generate bars for the lane, then schedule the clicks that fall inside the audio lookahead.
+    this.generateBars();
+    for (const b of this.bars) if (!b.clicked && b.start < horizon) this.scheduleClicks(b);
+
     // Drop old finished bars, keeping the latest ones for attribution of late hits.
-    if (this.bars.length > 64) this.bars.splice(0, this.bars.length - 64);
+    const doneCount = this.bars.findIndex((b) => !b.done);
+    if (doneCount > 48) this.bars.splice(0, doneCount - 48);
 
     // 3. Timed or completed session end.
     if (this.endTime !== Infinity && now > this.endTime + settle) this.stop();
   }
 
-  private scheduleBar(): void {
-    const bpm = this.currentBpm;
-    const beat = 60 / bpm;
-    const start = this.nextBarStart;
-    const { beatsPerBar, subdivisionClicks } = this.config;
-    const notes = this.cursor.nextBar(start, bpm, beatsPerBar, this.barCount);
+  private generateBars(): void {
+    const limit = audibleTime() + VISUAL_AHEAD_SEC;
+    while (this.nextBarStart < limit && this.nextBarStart < this.endTime - 1e-6) this.generateBar();
+  }
 
-    for (let b = 0; b < beatsPerBar; b++) this.clicks.schedule(start + b * beat, b === 0 ? 'accent' : 'beat');
-    if (subdivisionClicks) {
-      for (const n of notes) {
-        const pos = (n.time - start) / beat;
+  private generateBar(): void {
+    const bpm = this.currentBpm;
+    const { beatsPerBar } = this.config;
+    const start = this.nextBarStart;
+    const end = start + beatsPerBar * (60 / bpm);
+    const cursor = this.cursor.save();
+    const notes = this.cursor.nextBar(start, bpm, beatsPerBar, this.barCount);
+    this.scorer.addNotes(notes);
+    this.bars.push({ index: this.barCount, start, end, bpm, notes, cursor, clicked: false, stats: new Stats(), done: false });
+    this.barCount++;
+    this.nextBarStart = end;
+    this.events.onNotes?.(notes, { start, bpm, beats: beatsPerBar });
+  }
+
+  private scheduleClicks(b: Bar): void {
+    const beat = 60 / b.bpm;
+    for (let i = 0; i < this.config.beatsPerBar; i++) this.clicks.schedule(b.start + i * beat, i === 0 ? 'accent' : 'beat');
+    if (this.config.subdivisionClicks) {
+      for (const n of b.notes) {
+        const pos = (n.time - b.start) / beat;
         if (Math.abs(pos - Math.round(pos)) > 1e-6) this.clicks.schedule(n.time, 'sub');
       }
     }
+    b.clicked = true;
+    this.maxBpm = Math.max(this.maxBpm, b.bpm);
+  }
 
-    this.scorer.addNotes(notes);
-    this.bars.push({ index: this.barCount, start, end: start + beatsPerBar * beat, bpm, stats: new Stats(), done: false });
-    this.maxBpm = Math.max(this.maxBpm, bpm);
-    this.barCount++;
-    this.nextBarStart = start + beatsPerBar * beat;
-    this.events.onNotes?.(notes, { start, bpm, beats: beatsPerBar });
+  /** Drop every bar whose clicks are not scheduled yet. They are regenerated at the current tempo. */
+  private truncateFuture(): void {
+    const i = this.bars.findIndex((b) => !b.clicked);
+    if (i < 0) return;
+    const first = this.bars[i];
+    this.cursor.restore(first.cursor);
+    this.nextBarStart = first.start;
+    this.barCount = first.index;
+    this.bars.splice(i);
+    this.scorer.removeFrom(first.start - 1e-9);
+    this.events.onTruncate?.(first.start);
   }
 
   private barFor(time: number): Bar | undefined {

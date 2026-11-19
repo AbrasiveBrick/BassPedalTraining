@@ -1,5 +1,5 @@
 import { audibleTime, hasContext } from '../audio/context';
-import type { ExpectedNote, PedalMode } from '../engine/patterns';
+import { PatternCursor, type ExpectedNote, type Pattern, type PedalMode } from '../engine/patterns';
 import type { Grade, HitResult } from '../engine/scoring';
 
 type NoteState = Grade | 'miss' | undefined;
@@ -69,6 +69,12 @@ export class Lane {
   mode: PedalMode = 'double';
   pastSec = 0.6;
   futureSec = 2.4;
+  /** Static preview of the selected exercise (not playing). */
+  private previewing = false;
+  /** Lane time stays at this value after a run, so its results stay visible. */
+  private frozenAt: number | null = null;
+  /** Smoothed offset between the audio clock and performance.now(), in seconds. */
+  private clockOffset: number | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -82,6 +88,46 @@ export class Lane {
     this.states.clear();
     this.hits = [];
     this.bars = [];
+    this.previewing = false;
+    this.frozenAt = null;
+  }
+
+  /** Show the exercise laid out on the lane straight away, before Start. */
+  showPreview(pattern: Pattern, mode: PedalMode, bpm: number, beatsPerBar: number): void {
+    this.reset(mode);
+    this.previewing = true;
+    const cursor = new PatternCursor(pattern, mode);
+    const barDur = beatsPerBar * (60 / bpm);
+    for (let bar = 0, t = 0; t < this.futureSec + 0.5; bar++, t += barDur) {
+      this.addBar(cursor.nextBar(t, bpm, beatsPerBar, bar), t, bpm, beatsPerBar);
+    }
+  }
+
+  /** Stop scrolling and keep the last run on screen. */
+  freeze(): void {
+    this.frozenAt = this.clockNow();
+  }
+
+  /** Remove notes and bars starting at or after `time` (they are being regenerated). */
+  removeFrom(time: number): void {
+    const keep = this.notes.filter((n) => n.time < time);
+    for (const n of this.notes) if (n.time >= time) this.states.delete(n.index);
+    this.notes = keep;
+    this.bars = this.bars.filter((b) => b.start < time);
+  }
+
+  /**
+   * Audible time, smoothed. The audio clock advances in buffer-sized steps, so it is
+   * tied to performance.now() through a slowly filtered offset. That keeps the
+   * scrolling smooth at the display frame rate.
+   */
+  private clockNow(): number {
+    if (!hasContext()) return 0;
+    const perf = performance.now() / 1000;
+    const off = audibleTime() - perf;
+    if (this.clockOffset === null || Math.abs(off - this.clockOffset) > 0.03) this.clockOffset = off;
+    else this.clockOffset += (off - this.clockOffset) * 0.05;
+    return perf + this.clockOffset;
   }
 
   addBar(notes: ExpectedNote[], start: number, bpm: number, beats: number): void {
@@ -119,7 +165,8 @@ export class Lane {
   private draw(): void {
     const { w, h, g } = fitCanvas(this.canvas);
     const p = this.pal;
-    const now = hasContext() ? audibleTime() : 0;
+    // Preview: the first note sits just right of the hit line.
+    const now = this.previewing ? -0.3 : this.frozenAt ?? this.clockNow();
     const hitX = Math.max(60, w * 0.16);
     const pps = (w - hitX) / this.futureSec;
     const xOf = (t: number) => hitX + (t - now) * pps;
@@ -225,6 +272,13 @@ export class Lane {
         g.fillStyle = p.text;
         g.fillText(r === 0 ? 'L' : 'R', 7, y + 4);
       }
+    }
+
+    if (this.previewing) {
+      g.fillStyle = p.text;
+      g.font = '12px system-ui, sans-serif';
+      g.fillText('Preview: press Start (or Enter) to play', hitX + 10, h - 4);
+      return;
     }
 
     // Prune what has scrolled off

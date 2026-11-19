@@ -50,6 +50,17 @@ describe('patterns', () => {
     expect(b[0].foot).toBeUndefined();
   });
 
+  it('restores the cursor to regenerate a bar at another tempo', () => {
+    const c = new PatternCursor(getPattern('groups-3'), 'double');
+    c.nextBar(0, 120, 4, 0);
+    const saved = c.save();
+    const a = c.nextBar(2, 120, 4, 1);
+    c.restore(saved);
+    const b = c.nextBar(2, 140, 4, 1);
+    expect(b.map((n) => [n.index, n.accent, n.foot])).toEqual(a.map((n) => [n.index, n.accent, n.foot]));
+    expect(b[1].time - b[0].time).toBeCloseTo(60 / 140 / 4);
+  });
+
   it('computes notes per second', () => {
     expect(notesPerSecond(getPattern('16ths'), 120)).toBeCloseTo(8);
     expect(notesPerSecond(getPattern('gallop'), 120)).toBeCloseTo(6);
@@ -103,6 +114,14 @@ describe('scoring', () => {
     // 30 ms late: outside the 25 ms window of note 0, but also > 25 ms early for note 1, so extra
     expect(s.addHit(0.03, 1).kind).toBe('extra');
     expect(s.addHit(0.0625 + 0.01, 1).kind).toBe('hit');
+  });
+
+  it('removeFrom drops future notes so they can be regenerated', () => {
+    const s = new Scorer();
+    s.addNotes(bar());
+    s.removeFrom(3);
+    expect(s.addHit(3.0, 1).kind).toBe('extra');
+    expect(s.addHit(2.0, 1).kind).toBe('hit');
   });
 
   it('aggregates stats per foot', () => {

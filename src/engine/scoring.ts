@@ -89,6 +89,13 @@ export class Scorer {
     return missed;
   }
 
+  /** Forget every not-yet-played note at or after `time` (future bars being regenerated). */
+  removeFrom(time: number): void {
+    let i = this.slots.length;
+    while (i > this.first && this.slots[i - 1].note.time >= time && !this.slots[i - 1].resolved) i--;
+    this.slots.length = i;
+  }
+
   /** Resolve everything that is left (session stop). Notes after `until` are dropped. */
   finish(until: number): ExpectedNote[] {
     const missed: ExpectedNote[] = [];
