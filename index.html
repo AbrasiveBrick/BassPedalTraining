@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Practise kick / bass drum pedal technique with a piezo kick pad and an audio interface." />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>Bass Pedal Trainer</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="5" /><circle cx="32" cy="32" r="9" fill="currentColor" /></svg>
+        <span>Bass Pedal Trainer</span>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-view="setup" aria-selected="true">Setup</button>
+        <button role="tab" data-view="practice">Practice</button>
+        <button role="tab" data-view="history">History</button>
+      </nav>
+      <div class="status" id="input-status" title="Input status">Keyboard only</div>
+    </header>
+
+    <main>
+      <!-- ===================== SETUP ===================== -->
+      <section id="view-setup" class="view" data-active>
+        <div class="grid-2">
+          <article class="card">
+            <h2><span class="step">1</span> Connect the pad</h2>
+            <p class="muted">Plug the kick pad into an <b>instrument (Hi-Z)</b> or line input of your audio interface with a mono 6.3&nbsp;mm jack cable. Start with the input gain low.</p>
+            <label class="field">Audio input
+              <select id="device-select"><option value="">Default input</option></select>
+            </label>
+            <label class="field">Channel
+              <select id="channel-select">
+                <option value="-1">Auto (loudest)</option>
+                <option value="0">Input 1</option>
+                <option value="1">Input 2</option>
+              </select>
+            </label>
+            <div class="row">
+              <button id="connect-btn" class="primary">Connect audio input</button>
+              <button id="disconnect-btn" class="ghost" hidden>Disconnect</button>
+            </div>
+            <p id="connect-msg" class="muted small"></p>
+            <p class="hint">No pad connected? <kbd>Space</kbd>, <kbd>F</kbd> or <kbd>J</kbd> work as a stand-in pad everywhere in the app.</p>
+          </article>
+
+          <article class="card">
+            <h2><span class="step">2</span> Tune the trigger</h2>
+            <div class="meter-wrap">
+              <div class="meter" id="meter" aria-label="Input level">
+                <div class="meter-fill" id="meter-fill"></div>
+                <div class="meter-peak" id="meter-peak"></div>
+                <div class="meter-thresh" id="meter-thresh" title="Threshold"></div>
+              </div>
+              <div class="lamp" id="hit-lamp" aria-live="off">HIT</div>
+            </div>
+            <p class="small muted">Hits: <b id="hit-count">0</b> · last velocity: <b id="hit-vel">–</b></p>
+
+            <label class="field slider">Gain <output id="gain-out"></output>
+              <input type="range" id="gain" min="0" max="1" step="0.001" />
+            </label>
+            <label class="field slider">Threshold <output id="threshold-out"></output>
+              <input type="range" id="threshold" min="-48" max="-1" step="0.5" />
+            </label>
+            <label class="field slider">Retrigger mask <output id="mask-out"></output>
+              <input type="range" id="mask" min="8" max="80" step="1" />
+            </label>
+            <label class="field slider">Ringing suppression <output id="retrig-out"></output>
+              <input type="range" id="retrig" min="0" max="150" step="1" />
+            </label>
+            <div class="row">
+              <button id="noise-btn">Noise check (rest your foot, 3&nbsp;s)</button>
+            </div>
+            <p id="noise-msg" class="small muted"></p>
+            <details class="small muted">
+              <summary>Tuning tips</summary>
+              <ul>
+                <li><b>Double triggers</b> (one stroke counts twice): raise <i>Ringing suppression</i> (a longer decay), then <i>Retrigger mask</i>. If soft strokes right after loud ones are lost, lower the suppression.</li>
+                <li><b>Missed soft strokes</b>: lower <i>Threshold</i> or raise <i>Gain</i>.</li>
+                <li><b>Triggers when resting the foot</b>: run the noise check. It sets the threshold above the resting noise.</li>
+                <li>Keep the mask below the gap between your fastest strokes: 16ths at 220&nbsp;BPM are 68&nbsp;ms apart, 32nds are 34&nbsp;ms apart.</li>
+              </ul>
+            </details>
+          </article>
+
+          <article class="card">
+            <h2><span class="step">3</span> Calibrate latency</h2>
+            <p class="muted">Audio interfaces and browsers add delay. Play one stroke with each click (4 count-in clicks + 16 clicks at 90&nbsp;BPM). The app measures your average offset and removes it from every score.</p>
+            <div class="row">
+              <button id="calib-btn" class="primary">Start calibration</button>
+              <span id="calib-beat" class="big-num"></span>
+            </div>
+            <p id="calib-msg" class="small"></p>
+            <div class="offsets">
+              <label class="field inline">Pad offset (ms) <input type="number" id="offset-pad" step="1" /></label>
+              <label class="field inline">Keyboard offset (ms) <input type="number" id="offset-key" step="1" /></label>
+            </div>
+            <p class="small muted" id="offset-hint"></p>
+          </article>
+
+          <article class="card">
+            <h2>Metronome</h2>
+            <label class="field slider">Click volume <output id="click-vol-out"></output>
+              <input type="range" id="click-vol" min="0" max="1" step="0.01" />
+            </label>
+            <div class="row"><button id="test-click">Test click</button></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===================== PRACTICE ===================== -->
+      <section id="view-practice" class="view">
+        <article class="card controls">
+          <div class="control-grid">
+            <div class="field">Pedal
+              <div class="segmented" id="pedal-mode">
+                <button data-value="single">Single</button>
+                <button data-value="double">Double</button>
+              </div>
+            </div>
+            <label class="field">Pattern <select id="pattern-select"></select></label>
+            <label class="field">Mode
+              <select id="mode-select">
+                <option value="fixed">Fixed tempo</option>
+                <option value="timed">Endurance (timed)</option>
+                <option value="speed">Speed builder</option>
+              </select>
+            </label>
+            <div class="field" data-for="fixed timed">BPM
+              <div class="stepper">
+                <button data-step="-5">−5</button><button data-step="-1">−1</button>
+                <input type="number" id="bpm" min="30" max="320" />
+                <button data-step="1">+1</button><button data-step="5">+5</button>
+              </div>
+            </div>
+            <label class="field" data-for="timed">Duration (s) <input type="number" id="duration" min="10" max="1800" step="10" /></label>
+            <label class="field" data-for="speed">Start BPM <input type="number" id="sb-start" min="30" max="320" /></label>
+            <label class="field" data-for="speed">Target BPM <input type="number" id="sb-target" min="30" max="320" /></label>
+            <label class="field" data-for="speed">Step (+BPM) <input type="number" id="sb-step" min="1" max="20" /></label>
+            <label class="field" data-for="speed">Bars per step <input type="number" id="sb-bars" min="1" max="16" /></label>
+            <label class="field">Pass accuracy (%) <input type="number" id="sb-pass" min="50" max="100" /></label>
+            <div class="field checks">
+              <label><input type="checkbox" id="subdiv" /> Click every note</label>
+              <label><input type="checkbox" id="countin" /> Count-in bar</label>
+            </div>
+          </div>
+          <p class="small muted" id="pattern-desc"></p>
+          <div class="row">
+            <button id="start-btn" class="primary big">Start</button>
+            <span class="small muted">Press <kbd>Enter</kbd> to start and <kbd>Esc</kbd> to stop.</span>
+          </div>
+        </article>
+
+        <article class="card lane-card">
+          <canvas id="lane" aria-label="Note lane: notes scroll towards the hit line"></canvas>
+          <div class="banner" id="banner" hidden></div>
+        </article>
+
+        <div class="stats-grid">
+          <div class="tile"><span class="label">Tempo</span><span class="value" id="st-bpm">–</span><span class="sub" id="st-nps"></span></div>
+          <div class="tile"><span class="label">Accuracy</span><span class="value" id="st-acc">–</span><span class="sub" id="st-clean"></span></div>
+          <div class="tile"><span class="label">Timing</span><span class="value" id="st-mean">–</span><span class="sub" id="st-sd"></span></div>
+          <div class="tile"><span class="label">Time</span><span class="value" id="st-time">0:00</span><span class="sub" id="st-step"></span></div>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <h3>Hits</h3>
+            <ul class="counts">
+              <li><span class="dot g-perfect"></span>Perfect <small>(±10 ms)</small><b id="c-perfect">0</b></li>
+              <li><span class="dot g-good"></span>Good <small>(±25 ms)</small><b id="c-good">0</b></li>
+              <li><span class="dot g-ok"></span>OK<b id="c-ok">0</b></li>
+              <li><span class="dot g-miss"></span>Missed<b id="c-miss">0</b></li>
+              <li><span class="dot g-extra"></span>Extra hits<b id="c-extra">0</b></li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Last 40 strokes <small class="muted">offset in ms: early ← 0 → late</small></h3>
+            <canvas id="offset-chart" aria-label="Offset of recent strokes"></canvas>
+            <div id="feet" class="feet small"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===================== HISTORY ===================== -->
+      <section id="view-history" class="view">
+        <article class="card">
+          <div class="row spread">
+            <label class="field inline">Pattern <select id="hist-filter"><option value="">All patterns</option></select></label>
+            <div class="row">
+              <button id="export-btn">Export JSON</button>
+              <label class="button-like">Import JSON <input type="file" id="import-file" accept="application/json,.json" hidden /></label>
+              <button id="clear-btn" class="danger">Clear</button>
+            </div>
+          </div>
+          <div class="charts">
+            <figure><figcaption>Max clean BPM</figcaption><div class="chart" id="chart-bpm"></div></figure>
+            <figure><figcaption>Accuracy %</figcaption><div class="chart" id="chart-acc"></div></figure>
+          </div>
+        </article>
+        <article class="card">
+          <div class="table-wrap">
+            <table id="hist-table">
+              <thead>
+                <tr><th>Date</th><th>Pattern</th><th>Pedal</th><th>Mode</th><th>BPM</th><th>Clean</th><th>Accuracy</th><th>Timing</th><th>Time</th><th></th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="muted small" id="hist-empty">No sessions yet. Finish a practice run and it will show up here.</p>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
