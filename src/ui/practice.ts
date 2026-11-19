@@ -122,6 +122,7 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
   bindNum('sb-step', () => pr.speed.stepBpm, (v) => (pr.speed.stepBpm = v), 1, 20);
   bindNum('sb-bars', () => pr.speed.barsPerStep, (v) => (pr.speed.barsPerStep = v), 1, 16);
   bindNum('sb-pass', () => pr.speed.passAccuracy, (v) => (pr.speed.passAccuracy = v), 50, 100);
+  bindNum('sb-slow', () => pr.speed.slowAfterFails, (v) => (pr.speed.slowAfterFails = v), 1, 5);
 
   const subdiv = $<HTMLInputElement>('#subdiv');
   const countIn = $<HTMLInputElement>('#countin');
@@ -228,9 +229,9 @@ export function initPractice(d: PracticeDeps): { stop: () => void } {
       case 'up':
         return `✓ ${o.accuracy.toFixed(0)}%: up to ${o.to} BPM`;
       case 'hold':
-        return `✗ ${o.accuracy.toFixed(0)}%: staying at ${o.bpm} BPM`;
+        return `✗ ${o.accuracy.toFixed(0)}%: one more try at ${o.bpm} BPM`;
       case 'down':
-        return `✗ ${o.accuracy.toFixed(0)}% twice: back to ${o.to} BPM`;
+        return `✗ ${o.accuracy.toFixed(0)}%: slowing down to ${o.to} BPM`;
       case 'target':
         return `★ Target ${o.bpm} BPM reached at ${o.accuracy.toFixed(0)}%!`;
       default:

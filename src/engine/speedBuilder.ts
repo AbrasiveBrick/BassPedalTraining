@@ -7,9 +7,14 @@ export interface SpeedBuilderConfig {
   barsPerStep: number;
   /** Accuracy (0..100) needed to pass a step. */
   passAccuracy: number;
-  /** Failed steps in a row before the tempo drops one step. */
-  failsBeforeDrop: number;
+  /** Failed steps in a row before the tempo slows down (1 = slow down on every failed step). */
+  slowAfterFails: number;
 }
+
+/** The speed builder never slows below this tempo. */
+export const MIN_BPM = 30;
+/** A step this many points below the pass accuracy slows down by two steps instead of one. */
+export const BIG_MISS_MARGIN = 25;
 
 export const DEFAULT_SPEED_CONFIG: SpeedBuilderConfig = {
   startBpm: 100,
@@ -17,7 +22,7 @@ export const DEFAULT_SPEED_CONFIG: SpeedBuilderConfig = {
   stepBpm: 4,
   barsPerStep: 4,
   passAccuracy: 90,
-  failsBeforeDrop: 2,
+  slowAfterFails: 1,
 };
 
 export type StepOutcome =
@@ -28,7 +33,10 @@ export type StepOutcome =
   | { kind: 'target'; bpm: number; accuracy: number };
 
 /**
- * Raises the tempo while the player stays clean. Bars are reported once they are
+ * Raises the tempo while the player stays clean and slows down when they fail.
+ * A failed step drops the tempo by one step, or by two when the accuracy was far
+ * below the pass mark. It can go below the start tempo, down to MIN_BPM.
+ * Bars are reported once they are
  * fully scored. A bar played at an older tempo (one still in flight when the
  * tempo changed) is ignored.
  */
@@ -72,10 +80,11 @@ export class SpeedBuilder {
     }
 
     this.fails++;
-    if (this.fails >= c.failsBeforeDrop && this.bpm > c.startBpm) {
+    if (this.fails >= Math.max(1, c.slowAfterFails) && this.bpm > MIN_BPM) {
       this.fails = 0;
       const from = this.bpm;
-      this.bpm = Math.max(c.startBpm, this.bpm - c.stepBpm);
+      const steps = accuracy < c.passAccuracy - BIG_MISS_MARGIN ? 2 : 1;
+      this.bpm = Math.max(MIN_BPM, this.bpm - steps * c.stepBpm);
       return { kind: 'down', from, to: this.bpm, accuracy };
     }
     return { kind: 'hold', bpm: this.bpm, accuracy };

@@ -17,7 +17,7 @@ The pad goes into a USB audio interface. The app finds every stroke in the audio
 - **Practice modes**:
   - Fixed tempo.
   - Endurance (timed).
-  - **Speed builder**: the tempo goes up by *N* BPM each time you pass a step (*X* bars) at the target accuracy, and drops back after two failed steps.
+  - **Speed builder**: the tempo goes up by *N* BPM each time you pass a step (*X* bars) at the target accuracy, and **slows down after a failed step**: one step, or two if you were far off. It can drop below the start tempo. You can set how many failed steps it allows before slowing down.
 - **Progress history**: every run is saved in your browser and charted (max clean BPM and accuracy over time). You can export and import it as JSON.
 - **Stroke sound**: a velocity-sensitive kick (deep or metal click) plays on every stroke. For the pad it is mixed inside the AudioWorklet, so the only delay is the output latency. You can turn it off in Setup or Practice.
 - **Keyboard stand-in**: <kbd>Space</kbd>, <kbd>F</kbd> or <kbd>J</kbd> act as the pad, so you can try everything without hardware.

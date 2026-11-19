@@ -148,7 +148,7 @@ describe('scoring', () => {
 });
 
 describe('speed builder', () => {
-  const cfg = { startBpm: 100, targetBpm: 108, stepBpm: 4, barsPerStep: 2, passAccuracy: 90, failsBeforeDrop: 2 };
+  const cfg = { startBpm: 100, targetBpm: 108, stepBpm: 4, barsPerStep: 2, passAccuracy: 90, slowAfterFails: 1 };
 
   it('steps up after clean steps and stops at target', () => {
     const sb = new SpeedBuilder(cfg);
@@ -161,15 +161,36 @@ describe('speed builder', () => {
     expect(sb.maxCleanBpm).toBe(108);
   });
 
-  it('holds on a failed step and drops after two', () => {
+  it('slows down one step on every failed step', () => {
     const sb = new SpeedBuilder(cfg);
     sb.onBarScored(100, 16, 16);
     sb.onBarScored(100, 16, 16); // up to 104
-    sb.onBarScored(104, 10, 16);
-    expect(sb.onBarScored(104, 10, 16)).toMatchObject({ kind: 'hold', bpm: 104 });
-    sb.onBarScored(104, 10, 16);
-    expect(sb.onBarScored(104, 10, 16)).toMatchObject({ kind: 'down', from: 104, to: 100 });
+    sb.onBarScored(104, 13, 16);
+    expect(sb.onBarScored(104, 13, 16)).toMatchObject({ kind: 'down', from: 104, to: 100 }); // 81%
     expect(sb.maxCleanBpm).toBe(100);
+  });
+
+  it('slows down below the start tempo, two steps on a big miss', () => {
+    const sb = new SpeedBuilder(cfg);
+    sb.onBarScored(100, 6, 16);
+    expect(sb.onBarScored(100, 6, 16)).toMatchObject({ kind: 'down', from: 100, to: 92 }); // 37.5%
+    expect(sb.maxCleanBpm).toBe(0);
+  });
+
+  it('never goes below the minimum tempo', () => {
+    const sb = new SpeedBuilder({ ...cfg, startBpm: 34 });
+    sb.onBarScored(34, 0, 16);
+    expect(sb.onBarScored(34, 0, 16)).toMatchObject({ kind: 'down', to: 30 });
+    sb.onBarScored(30, 0, 16);
+    expect(sb.onBarScored(30, 0, 16)).toMatchObject({ kind: 'hold', bpm: 30 });
+  });
+
+  it('can allow a retry before slowing down', () => {
+    const sb = new SpeedBuilder({ ...cfg, slowAfterFails: 2 });
+    sb.onBarScored(100, 13, 16);
+    expect(sb.onBarScored(100, 13, 16)).toMatchObject({ kind: 'hold', bpm: 100 });
+    sb.onBarScored(100, 13, 16);
+    expect(sb.onBarScored(100, 13, 16)).toMatchObject({ kind: 'down', to: 96 });
   });
 
   it('ignores bars played at a stale tempo', () => {
