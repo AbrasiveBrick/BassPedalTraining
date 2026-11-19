@@ -28,12 +28,14 @@ jobs:
       - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && vars.DEPLOY_PAGES == 'true'
         with:
           path: dist
 
+  # GitHub Pages needs a public repo (or a paid plan). Once Pages is enabled with
+  # "GitHub Actions" as its source, set the repository variable DEPLOY_PAGES=true.
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && vars.DEPLOY_PAGES == 'true'
     needs: build
     runs-on: ubuntu-latest
     environment:

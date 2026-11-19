@@ -4,7 +4,7 @@ A browser app for practising kick / bass drum pedal technique, with a **single**
 
 The pad goes into a USB audio interface. The app finds every stroke in the audio signal and scores your timing against a sample-accurate metronome.
 
-**Live app:** https://abrasivebrick.github.io/BassPedalTraining/
+Run it locally with `npm install && npm run dev`. To host it on GitHub Pages, enable Pages (source: *GitHub Actions*) and set the repository variable `DEPLOY_PAGES=true`. Pages needs a public repo or a paid plan. Every push to `main` then deploys to `https://abrasivebrick.github.io/BassPedalTraining/`.
 
 ## Features
 
@@ -58,4 +58,4 @@ Stack: Vite + TypeScript, no runtime dependencies. The main code:
 - `src/engine/`: patterns, scoring, speed builder, session orchestration, calibration.
 - `src/ui/`: Setup, Practice (note lane and offset chart) and History views.
 
-Every push to `main` runs the tests and deploys to GitHub Pages via `.github/workflows/deploy.yml`.
+Every push and pull request runs the tests and the build via `.github/workflows/deploy.yml`, which also deploys to Pages when `DEPLOY_PAGES=true`.
