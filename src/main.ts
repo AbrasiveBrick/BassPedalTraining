@@ -8,6 +8,7 @@ import { $, $$ } from './ui/dom';
 import { initHistory } from './ui/history';
 import { initPractice } from './ui/practice';
 import { initSetup } from './ui/setup';
+import { initSound } from './ui/sound';
 
 const settings = loadSettings();
 const pad = new PadInput();
@@ -29,6 +30,7 @@ renderStatus();
 
 let view = 'setup';
 const history = initHistory();
+initSound({ settings, pad, bus });
 const setup = initSetup({ settings, pad, bus, clicks, onStatus: renderStatus });
 const practice = initPractice({ settings, bus, clicks, onSessionSaved: () => history.render(), isVisible: () => view === 'practice' });
 

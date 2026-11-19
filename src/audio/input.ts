@@ -1,6 +1,6 @@
 import processorUrl from './onset-processor.ts?worker&url';
 import type { DetectorSettings } from './onsetDetector';
-import type { ProcessorOutMessage } from './onset-processor';
+import type { ProcessorOutMessage, SoundConfig } from './onset-processor';
 import { ensureRunning } from './context';
 
 export interface InputDevice {
@@ -21,6 +21,7 @@ export class PadInput {
   private meterListeners = new Set<MeterListener>();
   channelCount = 0;
   deviceLabel = '';
+  private sound: SoundConfig = { type: 'kick', volume: 0.8 };
 
   get connected(): boolean {
     return this.node !== null;
@@ -79,7 +80,7 @@ export class PadInput {
       channelCountMode: 'explicit',
       channelCount: Math.max(1, this.channelCount),
       channelInterpretation: 'discrete',
-      processorOptions: { settings },
+      processorOptions: { settings, sound: this.sound },
     });
     this.node.port.onmessage = (e: MessageEvent<ProcessorOutMessage>) => {
       const m = e.data;
@@ -87,12 +88,18 @@ export class PadInput {
       else if (m.type === 'meter') this.meterListeners.forEach((fn) => fn(m.peak));
     };
     this.source.connect(this.node);
-    // The output is silent. The connection keeps the node in the rendered graph.
+    // The output carries the stroke sound, mixed in the audio thread for the lowest latency.
     this.node.connect(ctx.destination);
   }
 
   configure(settings: Partial<DetectorSettings>): void {
     this.node?.port.postMessage({ type: 'config', settings });
+  }
+
+  /** Sound played on each pad stroke (rendered inside the AudioWorklet). */
+  setSound(sound: SoundConfig): void {
+    this.sound = { ...sound };
+    this.node?.port.postMessage({ type: 'sound', sound: this.sound });
   }
 
   disconnect(): void {

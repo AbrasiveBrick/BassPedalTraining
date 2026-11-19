@@ -101,11 +101,18 @@
           </article>
 
           <article class="card">
-            <h2>Metronome</h2>
-            <label class="field slider">Click volume <output id="click-vol-out"></output>
+            <h2>Sounds</h2>
+            <label class="field slider">Metronome volume <output id="click-vol-out"></output>
               <input type="range" id="click-vol" min="0" max="1" step="0.01" />
             </label>
             <div class="row"><button id="test-click">Test click</button></div>
+            <div class="field checks"><label><input type="checkbox" id="hit-sound-on" /> Play a drum sound on each stroke</label></div>
+            <label class="field">Stroke sound <select id="hit-sound"></select></label>
+            <label class="field slider">Stroke volume <output id="hit-vol-out"></output>
+              <input type="range" id="hit-vol" min="0" max="1" step="0.01" />
+            </label>
+            <div class="row"><button id="test-hit-sound">Test stroke sound</button></div>
+            <p class="small muted">The volume follows how hard you hit. Pad strokes play straight from the audio engine, which gives the lowest delay. Use headphones if the speakers are loud.</p>
           </article>
         </div>
       </section>
@@ -144,6 +151,7 @@
             <div class="field checks">
               <label><input type="checkbox" id="subdiv" /> Click every note</label>
               <label><input type="checkbox" id="countin" /> Count-in bar</label>
+              <label><input type="checkbox" id="hit-sound-on-practice" /> Stroke sound</label>
             </div>
           </div>
           <p class="small muted" id="pattern-desc"></p>

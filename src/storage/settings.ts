@@ -1,4 +1,5 @@
 import { DEFAULT_DETECTOR_SETTINGS, type DetectorSettings } from '../audio/onsetDetector';
+import type { HitSoundType } from '../audio/hitSound';
 import type { PedalMode } from '../engine/patterns';
 import { DEFAULT_SPEED_CONFIG, type SpeedBuilderConfig } from '../engine/speedBuilder';
 
@@ -11,6 +12,10 @@ export interface Settings {
   /** Latency compensation in ms per source, subtracted from hit times. null = not calibrated. */
   offsets: Record<HitSource, number | null>;
   clickVolume: number;
+  /** Sound played on each stroke. */
+  hitSound: Exclude<HitSoundType, 'off'>;
+  hitSoundOn: boolean;
+  hitVolume: number;
   practice: {
     pedalMode: PedalMode;
     patternId: string;
@@ -32,6 +37,9 @@ export function defaultSettings(): Settings {
     deviceId: '',
     offsets: { pad: null, key: null },
     clickVolume: 0.8,
+    hitSound: 'kick',
+    hitSoundOn: true,
+    hitVolume: 0.8,
     practice: {
       pedalMode: 'double',
       patternId: '16ths',
